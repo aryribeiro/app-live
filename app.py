@@ -298,7 +298,7 @@ with st.sidebar:
 # Modo Participar (TELA PRINCIPAL)
 if st.session_state.session_mode == 'participate':
     st.markdown('<div class="participant-interface">', unsafe_allow_html=True)
-    st.header("🙋 Participar da Sessão")
+    st.header("🙋🏼‍♀️ Participar da Sessão")
     
     pin_input = st.text_input(
         "PIN da sessão:", 
