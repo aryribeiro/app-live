@@ -414,7 +414,7 @@ elif st.session_state.session_mode == 'moderate':
                 
                 # QR Code
                 st.subheader("📱 QR Code")
-                base_url = "http://localhost:8501"
+                base_url = "https://applive.streamlit.app:8501"
                 current_url = f"{base_url}?pin={st.session_state.current_pin}"
                 qr_buf = generate_qr_code(current_url)
                 if qr_buf:
