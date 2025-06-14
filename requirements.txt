@@ -1,0 +1,6 @@
+streamlit
+pandas
+plotly
+matplotlib
+qrcode[pil]
+sqlite3
