@@ -301,7 +301,7 @@ if st.session_state.session_mode == 'participate':
     st.header("🙋 Participar da Sessão")
     
     pin_input = st.text_input(
-        "📍 PIN da sessão:", 
+        "PIN da sessão:", 
         value=st.session_state.participant_pin,
         placeholder="123456",
         help="Solicite o PIN ao moderador da sessão",
