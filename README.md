@@ -1,3 +1,5 @@
+Obs.: caso o app esteja no modo "sleeping" (dormindo) ao entrar, basta clicar no botão que estará disponível e aguardar, para ativar o mesmo.
+![print](https://github.com/user-attachments/assets/d634fe62-3c4e-41df-811c-a69e5e464651)
 # 📡 App Live – Interação em Tempo Real com Participantes
 
 **App Live** é um web app interativo desenvolvido com [Streamlit](https://streamlit.io/) que permite criar sessões em tempo real para coletar respostas do público de forma simples, rápida e visual. Ideal para **aulas, lives, eventos e treinamentos**, com exibição de gráficos, nuvem de palavras e QR Code para fácil acesso.
@@ -40,16 +42,15 @@
 ## 🗂️ Estrutura do Projeto
 
 📁 app/
+
 └── app.py # Código principal do Streamlit App
+
 └── app_live.db # Banco de dados SQLite (gerado automaticamente)
+
 └── README.md # Documentação do projeto
 
+## Clone o repositório:
 
-## ▶️ Como Executar Localmente
-
-1. Clone o repositório:
-
-```bash
 git clone https://github.com/aryribeiro/app-live.git
 cd app-live
 
@@ -73,15 +74,13 @@ http://localhost:8501
 
     Navegador moderno (Chrome, Firefox, Edge)
 
-✅ To-do Futuro
+✅ Pro Futuro...
 
 Suporte a múltiplas perguntas por sessão (modo quiz)
 
 Exportação de resultados em CSV ou PDF
 
 Autenticação de moderador
-
-    Deploy na nuvem (Streamlit Cloud / Render / Hugging Face Spaces)
 
 👨‍💻 Autor
 
