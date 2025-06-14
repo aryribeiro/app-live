@@ -516,7 +516,7 @@ st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 20px;">
     <strong>📡 App Live</strong> - Desenvolvido para interação em tempo real<br>
-    Criado durante a Live da ANETI, por <strong>Ary Ribeiro</strong>. E-mail: <a href="mailto:aryribeiro@gmail.com">aryribeiro@gmail.com</a><br>
+    Criado durante a Live da ANETI, por <strong>Ary Ribeiro</strong>: <a href="mailto:aryribeiro@gmail.com">aryribeiro@gmail.com</a><br>
     <small>Versão 1.0 | Streamlit + Python</small>
 </div>
 """, unsafe_allow_html=True)
