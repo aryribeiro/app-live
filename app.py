@@ -362,7 +362,7 @@ if st.session_state.session_mode == 'participate':
     3. **Responda** à pergunta apresentada
     4. **Clique em Enviar** para participar
     
-    Sua resposta aparecerá instantaneamente na tela do moderador! 🎉
+    Sua resposta aparecerá instantaneamente na tela do moderador.
     """)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -516,7 +516,7 @@ st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 20px;">
     <strong>App Live</strong> - Desenvolvido para interação em tempo real 📡<br>
-    💬 Por <strong>Ary Ribeiro</strong>. Contato, através do email: <a href="mailto:aryribeiro@gmail.com">aryribeiro@gmail.com</a><br>
+    💬 Criado durante a Live da ANETI, por <strong>Ary Ribeiro</strong>. E-mail: <a href="mailto:aryribeiro@gmail.com">aryribeiro@gmail.com</a><br>
     <small>Versão 1.0 | Streamlit + Python</small>
 </div>
 """, unsafe_allow_html=True)
