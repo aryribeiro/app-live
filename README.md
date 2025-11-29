@@ -34,7 +34,7 @@ Obs.: caso o app esteja no modo "sleeping" (dormindo) ao entrar, basta clicar no
 - Acompanha visualizações da sessão
 
 ### Moderador
-- Cria perguntas
+- Cria perguntas após logar com senha padrão (admin123)
 - Compartilha o PIN e QR Code
 - Acompanha respostas em tempo real
 - Analisa resultados por gráfico, nuvem ou lista
