@@ -210,16 +210,18 @@ def create_wordcloud(responses):
         import numpy as np
         from collections import Counter
         
-        # Processar respostas para criar nuvem de palavras simples
-        all_words = []
+        # Processar respostas mantendo frases completas e convertendo para MAIÚSCULAS
+        all_phrases = []
         for response in responses:
-            words = response.lower().split()
-            all_words.extend(words)
+            # Converter para maiúsculas e manter a resposta completa
+            phrase = response.upper().strip()
+            if phrase:
+                all_phrases.append(phrase)
         
-        word_counts = Counter(all_words)
-        top_words = dict(word_counts.most_common(20))
+        phrase_counts = Counter(all_phrases)
+        top_phrases = dict(phrase_counts.most_common(20))
         
-        if not top_words:
+        if not top_phrases:
             return None
             
         # Criar visualização simples com matplotlib
@@ -228,16 +230,27 @@ def create_wordcloud(responses):
         
         # Posições aleatórias para as palavras
         np.random.seed(42)
-        positions = np.random.rand(len(top_words), 2)
+        positions = np.random.rand(len(top_phrases), 2)
         
         # Cores diferentes para cada palavra
-        colors = plt.cm.viridis(np.linspace(0, 1, len(top_words)))
+        colors = plt.cm.viridis(np.linspace(0, 1, len(top_phrases)))
         
-        for i, (word, count) in enumerate(top_words.items()):
-            size = min(20 + count * 5, 50)  # Tamanho baseado na frequência
-            ax.text(positions[i][0], positions[i][1], word, 
+        # Rotações aleatórias (0 = horizontal, 90 = vertical)
+        np.random.seed(42)
+        rotations = np.random.choice([0, 90], size=len(top_phrases))
+        
+        for i, (phrase, count) in enumerate(top_phrases.items()):
+            # Aumentar tamanho: menor fonte +4px, demais +8px
+            base_size = 20 + count * 5
+            if base_size <= 25:  # Fontes menores
+                size = min(base_size + 4, 54)
+            else:  # Fontes maiores
+                size = min(base_size + 8, 58)
+            
+            ax.text(positions[i][0], positions[i][1], phrase, 
                    fontsize=size, color=colors[i], 
-                   ha='center', va='center', weight='bold')
+                   ha='center', va='center', weight='bold',
+                   rotation=rotations[i])  # Adiciona rotação vertical
         
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
