@@ -119,9 +119,41 @@ def init_db():
             c.execute('''CREATE TABLE IF NOT EXISTS responses
                          (id TEXT PRIMARY KEY, session_id TEXT, response TEXT, created_at TIMESTAMP,
                           FOREIGN KEY(session_id) REFERENCES sessions(id))''')
+            c.execute('''CREATE TABLE IF NOT EXISTS config
+                         (key TEXT PRIMARY KEY, value TEXT)''')
+            
+            # Inserir senha padrão se não existir
+            c.execute("SELECT value FROM config WHERE key = 'moderator_password'")
+            if not c.fetchone():
+                c.execute("INSERT INTO config (key, value) VALUES ('moderator_password', 'admin123')")
+            
             conn.commit()
         except Exception as e:
             st.error(f"Erro ao inicializar banco: {e}")
+
+def get_moderator_password():
+    with db_lock:
+        try:
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("SELECT value FROM config WHERE key = 'moderator_password'")
+            result = c.fetchone()
+            return result[0] if result else 'admin123'
+        except Exception as e:
+            st.error(f"Erro ao buscar senha: {e}")
+            return 'admin123'
+
+def update_moderator_password(new_password):
+    with db_lock:
+        try:
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("UPDATE config SET value = ? WHERE key = 'moderator_password'", (new_password,))
+            conn.commit()
+            return True
+        except Exception as e:
+            st.error(f"Erro ao atualizar senha: {e}")
+            return False
 
 def generate_qr_code(url):
     try:
@@ -276,6 +308,10 @@ if 'current_pin' not in st.session_state:
     st.session_state.current_pin = None
 if 'auto_refresh' not in st.session_state:
     st.session_state.auto_refresh = True
+if 'moderator_authenticated' not in st.session_state:
+    st.session_state.moderator_authenticated = False
+if 'show_change_password' not in st.session_state:
+    st.session_state.show_change_password = False
 
 # Verificar se PIN foi passado via URL
 query_params = st.query_params
@@ -333,7 +369,7 @@ if st.session_state.session_mode == 'participate':
             # Formulário de resposta
             with st.form("response_form", clear_on_submit=True):
                 response = st.text_input(
-                    "✍️ Sua resposta:", 
+                    "✏️ Sua resposta:", 
                     placeholder="Digite sua resposta aqui...",
                     help="Seja claro e objetivo em sua resposta"
                 )
@@ -381,148 +417,212 @@ if st.session_state.session_mode == 'participate':
 
 # Modo Criar Sessão
 elif st.session_state.session_mode == 'create':
-    st.header("🎯 Criar Nova Sessão Interativa")
-    
-    with st.form("create_session_form"):
-        question = st.text_input(
-            "📝 Digite sua pergunta:", 
-            placeholder="Ex: De qual estado você é?",
-            help="Esta pergunta será exibida para todos os participantes"
-        )
+    # Verificar autenticação
+    if not st.session_state.moderator_authenticated:
+        st.header("🔐 Autenticação de Moderador")
+        st.info("Digite a senha de moderador para criar uma sessão.")
         
-        submitted = st.form_submit_button("🚀 Criar Sessão")
+        with st.form("auth_form"):
+            password_input = st.text_input("Senha:", type="password", placeholder="Digite a senha")
+            auth_submit = st.form_submit_button("🔓 Entrar")
+            
+            if auth_submit:
+                if password_input == get_moderator_password():
+                    st.session_state.moderator_authenticated = True
+                    st.success("✅ Autenticação bem-sucedida!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Senha incorreta!")
+    else:
+        st.header("🎯 Criar Nova Sessão Interativa")
         
-        if submitted and question.strip():
-            session_id, pin = create_session(question.strip())
-            if session_id and pin:
-                st.session_state.current_session = session_id
-                st.session_state.current_pin = pin
-                st.session_state.session_mode = 'moderate'
-                st.success("✅ Sessão criada com sucesso!")
-                st.info(f"📍 PIN da sessão: **{pin}**")
-                time.sleep(2)
-                st.rerun()
-            else:
-                st.error("❌ Erro ao criar sessão. Tente novamente.")
-        elif submitted:
-            st.warning("⚠️ Por favor, digite uma pergunta válida.")
+        # Botão para mudar senha
+        if st.button("🔑 Alterar Senha de Moderador"):
+            st.session_state.show_change_password = not st.session_state.show_change_password
+        
+        if st.session_state.show_change_password:
+            with st.form("change_password_form"):
+                st.subheader("🔐 Alterar Senha")
+                current_pass = st.text_input("Senha atual:", type="password")
+                new_pass = st.text_input("Nova senha:", type="password")
+                confirm_pass = st.text_input("Confirmar nova senha:", type="password")
+                change_submit = st.form_submit_button("💾 Salvar Nova Senha")
+                
+                if change_submit:
+                    if current_pass == get_moderator_password():
+                        if new_pass == confirm_pass and len(new_pass) >= 6:
+                            if update_moderator_password(new_pass):
+                                st.success("✅ Senha alterada com sucesso!")
+                                st.session_state.show_change_password = False
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.error("❌ Erro ao alterar senha.")
+                        else:
+                            st.error("❌ As senhas não coincidem ou são muito curtas (mínimo 6 caracteres).")
+                    else:
+                        st.error("❌ Senha atual incorreta!")
+            st.markdown("---")
+        
+        with st.form("create_session_form"):
+            question = st.text_input(
+                "📝 Digite sua pergunta:", 
+                placeholder="Ex: De qual estado você é?",
+                help="Esta pergunta será exibida para todos os participantes"
+            )
+            
+            submitted = st.form_submit_button("🚀 Criar Sessão")
+            
+            if submitted and question.strip():
+                session_id, pin = create_session(question.strip())
+                if session_id and pin:
+                    st.session_state.current_session = session_id
+                    st.session_state.current_pin = pin
+                    st.session_state.session_mode = 'moderate'
+                    st.success("✅ Sessão criada com sucesso!")
+                    st.info(f"📌 PIN da sessão: **{pin}**")
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    st.error("❌ Erro ao criar sessão. Tente novamente.")
+            elif submitted:
+                st.warning("⚠️ Por favor, digite uma pergunta válida.")
 
 # Modo Moderar Sessão
 elif st.session_state.session_mode == 'moderate':
-    if st.session_state.current_session:
-        session_data = get_session_by_pin(st.session_state.current_pin)
-        if session_data:
-            responses = get_responses(st.session_state.current_session)
+    # Verificar autenticação
+    if not st.session_state.moderator_authenticated:
+        st.header("🔐 Autenticação de Moderador")
+        st.info("Digite a senha de moderador para acessar o painel de moderação.")
+        
+        with st.form("auth_moderate_form"):
+            password_input = st.text_input("Senha:", type="password", placeholder="Digite a senha")
+            auth_submit = st.form_submit_button("🔓 Entrar")
             
-            # Layout principal
-            col1, col2 = st.columns([3, 1])
-            
-            with col2:
-                st.markdown(f"""
-                <div class="main-header" style="margin-bottom: 10px;">
-                    <div class="pin-display">PIN: {st.session_state.current_pin}</div>
-                    <div class="participants-count">👥 {len(responses)} participantes</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # QR Code
-                st.subheader("📱 QR Code")
-                base_url = "https://applive.streamlit.app"
-                current_url = f"{base_url}?pin={st.session_state.current_pin}"
-                qr_buf = generate_qr_code(current_url)
-                if qr_buf:
-                    st.image(qr_buf, width=200)
-                
-                st.markdown("**🔗 Link:**")
-                st.code(current_url, language=None)
-                
-                # Controles
-                if st.button("🔄 Atualizar Agora"):
+            if auth_submit:
+                if password_input == get_moderator_password():
+                    st.session_state.moderator_authenticated = True
+                    st.success("✅ Autenticação bem-sucedida!")
+                    time.sleep(1)
                     st.rerun()
-                
-                if st.button("🛑 Encerrar Sessão"):
-                    st.session_state.current_session = None
-                    st.session_state.current_pin = None
-                    st.session_state.session_mode = 'create'
-                    st.rerun()
-            
-            with col1:
-                st.markdown(f"""
-                <div class="question-container">
-                    📋 {session_data[2]}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                if responses:
-                    # Processar respostas
-                    response_counts = Counter(responses)
-                    
-                    # Métricas
-                    col_m1, col_m2, col_m3 = st.columns(3)
-                    with col_m1:
-                        st.metric("📊 Total de Respostas", len(responses))
-                    with col_m2:
-                        st.metric("🔢 Respostas Únicas", len(response_counts))
-                    with col_m3:
-                        if response_counts:
-                            most_common = response_counts.most_common(1)[0]
-                            st.metric("🥇 Mais Popular", f"{most_common[0]} ({most_common[1]}x)")
-                    
-                    # Tabs para visualizações
-                    tab1, tab2, tab3 = st.tabs(["📊 Gráfico", "☁️ Nuvem", "📋 Lista"])
-                    
-                    with tab1:
-                        # Gráfico de barras
-                        df_responses = pd.DataFrame(list(response_counts.items()), 
-                                                  columns=['Resposta', 'Quantidade'])
-                        df_responses = df_responses.sort_values('Quantidade', ascending=False).head(15)
-                        
-                        if not df_responses.empty:
-                            fig = px.bar(
-                                df_responses, 
-                                x='Resposta', 
-                                y='Quantidade',
-                                color='Quantidade', 
-                                color_continuous_scale='viridis',
-                                title="📈 Respostas Mais Frequentes"
-                            )
-                            fig.update_layout(
-                                height=400,
-                                xaxis_tickangle=-45,
-                                showlegend=False
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                    
-                    with tab2:
-                        # Nuvem de palavras
-                        wordcloud_fig = create_wordcloud(responses)
-                        if wordcloud_fig:
-                            st.pyplot(wordcloud_fig)
-                        else:
-                            st.info("💭 Aguardando mais respostas para gerar a nuvem de palavras...")
-                    
-                    with tab3:
-                        # Lista de respostas
-                        st.markdown("### 📝 Todas as Respostas")
-                        for i, (response, count) in enumerate(response_counts.most_common(), 1):
-                            st.markdown(f"**{i}.** {response} `({count}x)`")
                 else:
-                    st.info("🔄 Aguardando respostas dos participantes...")
-                    st.markdown("### 📢 Compartilhe o PIN ou QR Code com seus participantes!")
-            
-            # Auto-refresh para moderador
-            if st.session_state.auto_refresh:
-                time.sleep(5)
-                st.rerun()
-        else:
-            st.error("❌ Sessão não encontrada.")
-            st.session_state.current_session = None
-            st.session_state.current_pin = None
+                    st.error("❌ Senha incorreta!")
     else:
-        st.info("ℹ️ Nenhuma sessão ativa. Crie uma nova sessão primeiro.")
-        if st.button("➕ Criar Nova Sessão"):
-            st.session_state.session_mode = 'create'
-            st.rerun()
+        if st.session_state.current_session:
+            session_data = get_session_by_pin(st.session_state.current_pin)
+            if session_data:
+                responses = get_responses(st.session_state.current_session)
+                
+                # Layout principal
+                col1, col2 = st.columns([3, 1])
+                
+                with col2:
+                    st.markdown(f"""
+                    <div class="main-header" style="margin-bottom: 10px;">
+                        <div class="pin-display">PIN: {st.session_state.current_pin}</div>
+                        <div class="participants-count">👥 {len(responses)} participantes</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # QR Code
+                    st.subheader("📱 QR Code")
+                    base_url = "https://applive.streamlit.app"
+                    current_url = f"{base_url}?pin={st.session_state.current_pin}"
+                    qr_buf = generate_qr_code(current_url)
+                    if qr_buf:
+                        st.image(qr_buf, width=200)
+                    
+                    st.markdown("**🔗 Link:**")
+                    st.code(current_url, language=None)
+                    
+                    # Controles
+                    if st.button("🔄 Atualizar Agora"):
+                        st.rerun()
+                    
+                    if st.button("🛑 Encerrar Sessão"):
+                        st.session_state.current_session = None
+                        st.session_state.current_pin = None
+                        st.session_state.session_mode = 'create'
+                        st.rerun()
+                
+                with col1:
+                    st.markdown(f"""
+                    <div class="question-container">
+                        📋 {session_data[2]}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if responses:
+                        # Processar respostas
+                        response_counts = Counter(responses)
+                        
+                        # Métricas
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        with col_m1:
+                            st.metric("📊 Total de Respostas", len(responses))
+                        with col_m2:
+                            st.metric("🔢 Respostas Únicas", len(response_counts))
+                        with col_m3:
+                            if response_counts:
+                                most_common = response_counts.most_common(1)[0]
+                                st.metric("🥇 Mais Popular", f"{most_common[0]} ({most_common[1]}x)")
+                        
+                        # Tabs para visualizações
+                        tab1, tab2, tab3 = st.tabs(["📊 Gráfico", "☁️ Nuvem", "📋 Lista"])
+                        
+                        with tab1:
+                            # Gráfico de barras
+                            df_responses = pd.DataFrame(list(response_counts.items()), 
+                                                      columns=['Resposta', 'Quantidade'])
+                            df_responses = df_responses.sort_values('Quantidade', ascending=False).head(15)
+                            
+                            if not df_responses.empty:
+                                fig = px.bar(
+                                    df_responses, 
+                                    x='Resposta', 
+                                    y='Quantidade',
+                                    color='Quantidade', 
+                                    color_continuous_scale='viridis',
+                                    title="📈 Respostas Mais Frequentes"
+                                )
+                                fig.update_layout(
+                                    height=400,
+                                    xaxis_tickangle=-45,
+                                    showlegend=False
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                        
+                        with tab2:
+                            # Nuvem de palavras
+                            wordcloud_fig = create_wordcloud(responses)
+                            if wordcloud_fig:
+                                st.pyplot(wordcloud_fig)
+                            else:
+                                st.info("💭 Aguardando mais respostas para gerar a nuvem de palavras...")
+                        
+                        with tab3:
+                            # Lista de respostas
+                            st.markdown("### 📝 Todas as Respostas")
+                            for i, (response, count) in enumerate(response_counts.most_common(), 1):
+                                st.markdown(f"**{i}.** {response} `({count}x)`")
+                    else:
+                        st.info("📭 Aguardando respostas dos participantes...")
+                        st.markdown("### 📢 Compartilhe o PIN ou QR Code com seus participantes!")
+                
+                # Auto-refresh para moderador
+                if st.session_state.auto_refresh:
+                    time.sleep(5)
+                    st.rerun()
+            else:
+                st.error("❌ Sessão não encontrada.")
+                st.session_state.current_session = None
+                st.session_state.current_pin = None
+        else:
+            st.info("ℹ️ Nenhuma sessão ativa. Crie uma nova sessão primeiro.")
+            if st.button("➕ Criar Nova Sessão"):
+                st.session_state.session_mode = 'create'
+                st.rerun()
 
 # Footer
 st.markdown("---")
