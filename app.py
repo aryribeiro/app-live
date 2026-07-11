@@ -1,10 +1,12 @@
 import html
+import os
 import random
 import sqlite3
 import threading
 import time
 import uuid
-from collections import Counter
+import zlib
+from collections import Counter, defaultdict
 from datetime import datetime
 from io import BytesIO
 
@@ -19,7 +21,7 @@ st.set_page_config(
     page_title="App Live",
     page_icon="📡",
     layout="centered",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"  # desktop: aberta; smartphone: fechada
 )
 
 # CSS customizado
@@ -307,6 +309,24 @@ def add_response(session_id, response):
         st.error(f"Erro ao adicionar resposta: {e}")
         return False
 
+def end_session(session_id):
+    """Remove a sessão e suas respostas do banco — sem isso, participantes
+    continuam vendo a sessão como ativa mesmo depois de encerrada."""
+    def op(conn):
+        c = conn.cursor()
+        c.execute("DELETE FROM responses WHERE session_id = ?", (session_id,))
+        c.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.commit()
+
+    try:
+        run_db(op)
+        get_session_by_pin.clear()       # write-invalidate global (PIN sumiu)
+        get_responses.clear(session_id)  # write-invalidate desta sessão
+        return True
+    except Exception as e:
+        st.error(f"Erro ao encerrar sessão: {e}")
+        return False
+
 @st.cache_data(ttl=3, show_spinner=False)
 def get_responses(session_id):
     def op(conn):
@@ -332,35 +352,77 @@ def _wordcloud_color_func(word, **kwargs):
     return random.Random(word).choice(WORDCLOUD_PALETTE)
 
 
+def _resolve_wordcloud_font():
+    """Arial no Windows; no Streamlit Cloud (Linux), Liberation Sans — o
+    equivalente métrico do Arial, instalado via packages.txt (fonts-liberation)."""
+    candidates = [
+        r"C:\Windows\Fonts\arialbd.ttf",
+        r"C:\Windows\Fonts\arial.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None  # fallback: fonte embutida da lib wordcloud
+
+
+def _wordcloud_weights(phrase_counts):
+    """Pesos para o layout: frequências empatadas recebem tamanhos variados.
+
+    Contagens são elevadas ao quadrado (amplia a diferença visual entre
+    frequências reais) e, dentro de cada grupo empatado, os pesos são
+    espalhados por até 80% do intervalo até o próximo nível — variedade
+    de tamanhos sem nunca inverter a ordem real de contagem.
+    """
+    groups = defaultdict(list)
+    for phrase, count in phrase_counts:
+        groups[count].append(phrase)
+
+    weights = {}
+    for count, group in groups.items():
+        base = float(count * count)
+        gap = float((count + 1) ** 2 - count ** 2)
+        # ordem estável por hash: mesma frase -> mesmo tamanho em todo refresh
+        group.sort(key=lambda p: zlib.crc32(p.encode("utf-8")))
+        n = len(group)
+        for i, phrase in enumerate(group):
+            weights[phrase] = base + (0.8 * gap * i / n if n > 1 else 0.0)
+    return weights
+
+
 @st.cache_data(ttl=300, max_entries=32, show_spinner=False)
 def create_wordcloud(responses):
     """Gera a nuvem de palavras como PNG (bytes) a partir das respostas.
 
     O posicionamento usa o algoritmo espiral da lib `wordcloud`, com teste de
-    colisão pixel a pixel — nenhuma palavra sobrepõe outra. O tamanho da fonte
-    é proporcional à frequência da resposta.
+    colisão pixel a pixel — nenhuma palavra sobrepõe outra. O tamanho segue a
+    frequência, com variação entre empates (ver _wordcloud_weights).
     """
     try:
         phrases = [r.upper().strip() for r in responses if r and r.strip()]
         if not phrases:
             return None
 
-        top_phrases = dict(Counter(phrases).most_common(50))
+        weights = _wordcloud_weights(Counter(phrases).most_common(50))
 
         wc = WordCloud(
             width=1600,
             height=900,
             background_color="white",
+            font_path=_resolve_wordcloud_font(),
             max_words=50,
-            min_font_size=18,
-            max_font_size=280,
+            min_font_size=16,
+            max_font_size=170,
             prefer_horizontal=0.9,
-            relative_scaling=0.55,
+            relative_scaling=0.5,
             margin=18,
             color_func=_wordcloud_color_func,
             random_state=42,
             collocations=False,
-        ).generate_from_frequencies(top_phrases)
+        ).generate_from_frequencies(weights)
 
         buf = BytesIO()
         wc.to_image().save(buf, format="PNG")
@@ -421,10 +483,18 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Troca de modo disparada por botões: precisa ser aplicada ANTES do radio da
+# sidebar ser instanciado — senão o valor atual do widget sobrescreve a troca
+# e o botão "não funciona" (bug antigo do "Criar Nova Sessão")
+if st.session_state.get('pending_mode'):
+    st.session_state.mode_radio = st.session_state.pending_mode
+    st.session_state.pending_mode = None
+
 # Sidebar para controle
 with st.sidebar:
     st.header("🎛️ Controle da Sessão")
-    mode = st.radio("Selecione o modo:", ["🙋 Participar", "🎯 Criar Sessão", "📊 Moderar Sessão"])
+    mode = st.radio("Selecione o modo:", ["🙋 Participar", "🎯 Criar Sessão", "📊 Moderar Sessão"],
+                    key="mode_radio")
     
     if mode == "🙋 Participar":
         st.session_state.session_mode = 'participate'
@@ -558,7 +628,7 @@ elif st.session_state.session_mode == 'create':
                 if session_id and pin:
                     st.session_state.current_session = session_id
                     st.session_state.current_pin = pin
-                    st.session_state.session_mode = 'moderate'
+                    st.session_state.pending_mode = "📊 Moderar Sessão"
                     st.success("✅ Sessão criada com sucesso!")
                     st.info(f"📌 PIN da sessão: **{pin}**")
                     time.sleep(2)
@@ -616,10 +686,11 @@ elif st.session_state.session_mode == 'moderate':
                         st.rerun(scope="fragment")
                     
                     if st.button("🛑 Encerrar Sessão"):
+                        end_session(st.session_state.current_session)
                         st.session_state.current_session = None
                         st.session_state.current_pin = None
-                        st.session_state.session_mode = 'create'
-                        st.rerun()
+                        st.session_state.pending_mode = "🎯 Criar Sessão"
+                        st.rerun(scope="app")
                 
                 with col1:
                     st.markdown(f"""
@@ -689,7 +760,7 @@ elif st.session_state.session_mode == 'moderate':
         else:
             st.info("ℹ️ Nenhuma sessão ativa. Crie uma nova sessão primeiro.")
             if st.button("➕ Criar Nova Sessão"):
-                st.session_state.session_mode = 'create'
+                st.session_state.pending_mode = "🎯 Criar Sessão"
                 st.rerun()
 
 # Footer
