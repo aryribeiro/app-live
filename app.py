@@ -38,8 +38,26 @@ def inject_custom_css():
         padding-top: 1rem;
         padding-bottom: 0rem;
     }
-    /* Esconde completamente todos os elementos da barra padrão do Streamlit */
-    header {display: none !important;}
+    /* Esconde o chrome padrão do Streamlit, mas mantém o <header> no DOM
+       para preservar a seta de abrir/fechar o sidebar */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+    header[data-testid="stHeader"] [data-testid="stToolbar"],
+    header[data-testid="stHeader"] [data-testid="stDecoration"],
+    header[data-testid="stHeader"] [data-testid="stStatusWidget"] {
+        display: none !important;
+    }
+    /* Garante que o botão de expandir/colapsar o sidebar continue visível,
+       cobrindo os testids usados entre versões do Streamlit */
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebarCollapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
     footer {display: none !important;}
     #MainMenu {display: none !important;}
     /* Remove qualquer espaço em branco adicional */
