@@ -19,8 +19,122 @@ st.set_page_config(
     page_title="App Live",
     page_icon="📡",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
+
+# CSS customizado
+def inject_custom_css():
+    """Injeta todo o CSS do app num único bloco (tema + ocultação do chrome padrão)."""
+    st.markdown("""
+<style>
+    .main > div {
+        padding-top: 1rem;
+    }
+    .main {
+        background-color: #ffffff;
+        color: #333333;
+    }
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 0rem;
+    }
+    /* Esconde completamente todos os elementos da barra padrão do Streamlit */
+    header {display: none !important;}
+    footer {display: none !important;}
+    #MainMenu {display: none !important;}
+    /* Remove qualquer espaço em branco adicional */
+    div[data-testid="stAppViewBlockContainer"] {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    div[data-testid="stVerticalBlock"] {
+        gap: 0 !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    /* Remove quaisquer margens extras */
+    .element-container {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+    .stApp > header {
+        background-color: transparent;
+    }
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        color: white;
+        margin-bottom: 20px;
+    }
+    .pin-display {
+        background: white;
+        color: #667eea;
+        padding: 10px 20px;
+        border-radius: 25px;
+        font-weight: bold;
+        font-size: 18px;
+        display: inline-block;
+        margin: 10px;
+    }
+    .participants-count {
+        font-size: 16px;
+        color: white;
+        margin-top: 10px;
+    }
+    .question-container {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        padding: 30px;
+        border-radius: 15px;
+        text-align: center;
+        color: white;
+        font-size: 24px;
+        font-weight: bold;
+        margin: 20px 0;
+    }
+    .response-form {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        margin: 20px 0;
+        border: 2px solid #e9ecef;
+    }
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 10px 30px;
+        border-radius: 25px;
+        font-weight: bold;
+        width: 100%;
+    }
+    .success-message {
+        background: #d4edda;
+        color: #155724;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #c3e6cb;
+        margin: 10px 0;
+    }
+    .error-message {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #f5c6cb;
+        margin: 10px 0;
+    }
+    .participant-interface {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+inject_custom_css()
 
 # Configuração do banco de dados com thread lock
 db_lock = threading.Lock()
@@ -572,33 +686,4 @@ st.markdown("""
     Criado durante a Live da ANETI, por <strong>Ary Ribeiro</strong>: <a href="mailto:aryribeiro@gmail.com">aryribeiro@gmail.com</a><br>
     <small>Versão 1.0 | Streamlit + Python</small>
 </div>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-    .main {
-        background-color: #ffffff;
-        color: #333333;
-    }
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 0rem;
-    }
-    header {display: none !important;}
-    footer {display: none !important;}
-    #MainMenu {display: none !important;}
-    div[data-testid="stAppViewBlockContainer"] {
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-    }
-    div[data-testid="stVerticalBlock"] {
-        gap: 0 !important;
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-    }
-    .element-container {
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
-    }
-</style>
 """, unsafe_allow_html=True)
