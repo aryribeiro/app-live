@@ -44,19 +44,15 @@ def inject_custom_css():
         background: transparent !important;
         box-shadow: none !important;
     }
-    header[data-testid="stHeader"] [data-testid="stToolbar"],
-    header[data-testid="stHeader"] [data-testid="stDecoration"],
-    header[data-testid="stHeader"] [data-testid="stStatusWidget"] {
+    /* Esconde só os itens à direita do toolbar (menu, Deploy, status).
+       NÃO esconder o stToolbar inteiro: é dentro dele que o Streamlit
+       renderiza a seta de expandir a sidebar (stExpandSidebarButton). */
+    [data-testid="stToolbarActions"],
+    [data-testid="stAppDeployButton"],
+    [data-testid="stMainMenu"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stDecoration"] {
         display: none !important;
-    }
-    /* Garante que o botão de expandir/colapsar o sidebar continue visível,
-       cobrindo os testids usados entre versões do Streamlit */
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebarCollapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
     }
     footer {display: none !important;}
     #MainMenu {display: none !important;}
