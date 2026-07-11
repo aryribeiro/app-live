@@ -1,16 +1,18 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import matplotlib.pyplot as plt
-import qrcode
-from io import BytesIO
+import html
+import random
 import sqlite3
+import threading
 import time
-from datetime import datetime
 import uuid
 from collections import Counter
-import threading
-import base64
+from datetime import datetime
+from io import BytesIO
+
+import pandas as pd
+import plotly.express as px
+import qrcode
+import streamlit as st
+from wordcloud import WordCloud
 
 # Configuração da página
 st.set_page_config(
@@ -21,10 +23,39 @@ st.set_page_config(
 )
 
 # CSS customizado
-st.markdown("""
+def inject_custom_css():
+    """Injeta todo o CSS do app num único bloco (tema + ocultação do chrome padrão)."""
+    st.markdown("""
 <style>
     .main > div {
         padding-top: 1rem;
+    }
+    .main {
+        background-color: #ffffff;
+        color: #333333;
+    }
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 0rem;
+    }
+    /* Esconde completamente todos os elementos da barra padrão do Streamlit */
+    header {display: none !important;}
+    footer {display: none !important;}
+    #MainMenu {display: none !important;}
+    /* Remove qualquer espaço em branco adicional */
+    div[data-testid="stAppViewBlockContainer"] {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    div[data-testid="stVerticalBlock"] {
+        gap: 0 !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    /* Remove quaisquer margens extras */
+    .element-container {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
     }
     .stApp > header {
         background-color: transparent;
@@ -102,58 +133,90 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+inject_custom_css()
+
 # Configuração do banco de dados com thread lock
 db_lock = threading.Lock()
 
 @st.cache_resource
 def get_db_connection():
-    return sqlite3.connect('app_live.db', check_same_thread=False, timeout=30)
+    conn = sqlite3.connect('app_live.db', check_same_thread=False, timeout=30)
+    # WAL reduz contenção entre leituras e escritas concorrentes
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=30000;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
+
+
+def run_db(operation, max_attempts=4, base_delay=0.1, max_delay=2.0):
+    """Executa uma operação no banco com retry e backoff exponencial com jitter.
+
+    Retenta apenas sqlite3.OperationalError (ex.: 'database is locked');
+    erros de programação/integridade propagam imediatamente.
+    """
+    delay = base_delay
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with db_lock:
+                return operation(get_db_connection())
+        except sqlite3.OperationalError:
+            if attempt == max_attempts:
+                raise
+            time.sleep(delay + random.uniform(0, delay))
+            delay = min(delay * 2, max_delay)
+
 
 def init_db():
-    with db_lock:
-        try:
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute('''CREATE TABLE IF NOT EXISTS sessions
-                         (id TEXT PRIMARY KEY, pin TEXT UNIQUE, question TEXT, created_at TIMESTAMP)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS responses
-                         (id TEXT PRIMARY KEY, session_id TEXT, response TEXT, created_at TIMESTAMP,
-                          FOREIGN KEY(session_id) REFERENCES sessions(id))''')
-            c.execute('''CREATE TABLE IF NOT EXISTS config
-                         (key TEXT PRIMARY KEY, value TEXT)''')
-            
-            # Inserir senha padrão se não existir
-            c.execute("SELECT value FROM config WHERE key = 'moderator_password'")
-            if not c.fetchone():
-                c.execute("INSERT INTO config (key, value) VALUES ('moderator_password', 'admin123')")
-            
-            conn.commit()
-        except Exception as e:
-            st.error(f"Erro ao inicializar banco: {e}")
+    def op(conn):
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS sessions
+                     (id TEXT PRIMARY KEY, pin TEXT UNIQUE, question TEXT, created_at TIMESTAMP)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS responses
+                     (id TEXT PRIMARY KEY, session_id TEXT, response TEXT, created_at TIMESTAMP,
+                      FOREIGN KEY(session_id) REFERENCES sessions(id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS config
+                     (key TEXT PRIMARY KEY, value TEXT)''')
 
+        # Inserir senha padrão se não existir
+        c.execute("SELECT value FROM config WHERE key = 'moderator_password'")
+        if not c.fetchone():
+            c.execute("INSERT INTO config (key, value) VALUES ('moderator_password', 'admin123')")
+
+        conn.commit()
+
+    try:
+        run_db(op)
+    except Exception as e:
+        st.error(f"Erro ao inicializar banco: {e}")
+
+@st.cache_data(ttl=60, show_spinner=False)
 def get_moderator_password():
-    with db_lock:
-        try:
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute("SELECT value FROM config WHERE key = 'moderator_password'")
-            result = c.fetchone()
-            return result[0] if result else 'admin123'
-        except Exception as e:
-            st.error(f"Erro ao buscar senha: {e}")
-            return 'admin123'
+    def op(conn):
+        c = conn.cursor()
+        c.execute("SELECT value FROM config WHERE key = 'moderator_password'")
+        result = c.fetchone()
+        return result[0] if result else 'admin123'
+
+    try:
+        return run_db(op)
+    except Exception as e:
+        st.error(f"Erro ao buscar senha: {e}")
+        return 'admin123'
 
 def update_moderator_password(new_password):
-    with db_lock:
-        try:
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute("UPDATE config SET value = ? WHERE key = 'moderator_password'", (new_password,))
-            conn.commit()
-            return True
-        except Exception as e:
-            st.error(f"Erro ao atualizar senha: {e}")
-            return False
+    def op(conn):
+        c = conn.cursor()
+        c.execute("UPDATE config SET value = ? WHERE key = 'moderator_password'", (new_password,))
+        conn.commit()
+
+    try:
+        run_db(op)
+        get_moderator_password.clear()  # write-invalidate
+        return True
+    except Exception as e:
+        st.error(f"Erro ao atualizar senha: {e}")
+        return False
 
 def generate_qr_code(url):
     try:
@@ -176,125 +239,141 @@ def generate_qr_code(url):
         return None
 
 def create_session(question):
-    with db_lock:
-        try:
-            # Gerar PIN mais simples
-            pin = str(uuid.uuid4().int)[:6]
-            session_id = str(uuid.uuid4())
-            
-            conn = get_db_connection()
-            c = conn.cursor()
-            
-            # Verificar se PIN já existe
-            c.execute("SELECT pin FROM sessions WHERE pin = ?", (pin,))
-            if c.fetchone():
-                pin = str(uuid.uuid4().int)[:6]  # Gerar novo se existir
-            
-            c.execute("INSERT INTO sessions (id, pin, question, created_at) VALUES (?, ?, ?, ?)", 
-                      (session_id, pin, question, datetime.now()))
-            conn.commit()
-            return session_id, pin
-        except Exception as e:
-            st.error(f"Erro ao criar sessão: {e}")
-            return None, None
+    def op(conn):
+        c = conn.cursor()
 
+        # Gerar PIN de 6 dígitos, re-checando unicidade até conseguir
+        for _ in range(20):
+            pin = f"{random.SystemRandom().randrange(100000, 1000000)}"
+            c.execute("SELECT 1 FROM sessions WHERE pin = ?", (pin,))
+            if not c.fetchone():
+                break
+        else:
+            raise RuntimeError("Não foi possível gerar um PIN único")
+
+        session_id = str(uuid.uuid4())
+        c.execute("INSERT INTO sessions (id, pin, question, created_at) VALUES (?, ?, ?, ?)",
+                  (session_id, pin, question, datetime.now()))
+        conn.commit()
+        return session_id, pin
+
+    try:
+        result = run_db(op)
+        get_session_by_pin.clear()  # write-invalidate: PIN novo não pode ficar preso em cache negativo
+        return result
+    except Exception as e:
+        st.error(f"Erro ao criar sessão: {e}")
+        return None, None
+
+@st.cache_data(ttl=30, show_spinner=False)
 def get_session_by_pin(pin):
-    with db_lock:
-        try:
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute("SELECT id, pin, question, created_at FROM sessions WHERE pin = ?", (pin,))
-            result = c.fetchone()
-            return result
-        except Exception as e:
-            st.error(f"Erro ao buscar sessão: {e}")
-            return None
+    def op(conn):
+        c = conn.cursor()
+        c.execute("SELECT id, pin, question, created_at FROM sessions WHERE pin = ?", (pin,))
+        return c.fetchone()
+
+    try:
+        return run_db(op)
+    except Exception as e:
+        st.error(f"Erro ao buscar sessão: {e}")
+        return None
 
 def add_response(session_id, response):
-    with db_lock:
-        try:
-            response_id = str(uuid.uuid4())
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute("INSERT INTO responses (id, session_id, response, created_at) VALUES (?, ?, ?, ?)", 
-                      (response_id, session_id, response.strip(), datetime.now()))
-            conn.commit()
-            return True
-        except Exception as e:
-            st.error(f"Erro ao adicionar resposta: {e}")
-            return False
+    def op(conn):
+        c = conn.cursor()
+        c.execute("INSERT INTO responses (id, session_id, response, created_at) VALUES (?, ?, ?, ?)",
+                  (str(uuid.uuid4()), session_id, response.strip(), datetime.now()))
+        conn.commit()
 
-def get_responses(session_id):
-    with db_lock:
-        try:
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute("SELECT response FROM responses WHERE session_id = ? ORDER BY created_at DESC", (session_id,))
-            results = c.fetchall()
-            return [r[0] for r in results if r[0] and r[0].strip()]
-        except Exception as e:
-            st.error(f"Erro ao buscar respostas: {e}")
-            return []
-
-def create_wordcloud(responses):
     try:
-        import matplotlib.pyplot as plt
-        import numpy as np
-        from collections import Counter
-        
-        # Processar respostas mantendo frases completas e convertendo para MAIÚSCULAS
-        all_phrases = []
-        for response in responses:
-            # Converter para maiúsculas e manter a resposta completa
-            phrase = response.upper().strip()
-            if phrase:
-                all_phrases.append(phrase)
-        
-        phrase_counts = Counter(all_phrases)
-        top_phrases = dict(phrase_counts.most_common(20))
-        
-        if not top_phrases:
+        run_db(op)
+        get_responses.clear(session_id)  # write-invalidate apenas desta sessão
+        return True
+    except Exception as e:
+        st.error(f"Erro ao adicionar resposta: {e}")
+        return False
+
+@st.cache_data(ttl=3, show_spinner=False)
+def get_responses(session_id):
+    def op(conn):
+        c = conn.cursor()
+        c.execute("SELECT response FROM responses WHERE session_id = ? ORDER BY created_at DESC", (session_id,))
+        return [r[0] for r in c.fetchall() if r[0] and r[0].strip()]
+
+    try:
+        return run_db(op)
+    except Exception as e:
+        st.error(f"Erro ao buscar respostas: {e}")
+        return []
+
+# Paleta categórica validada (todas as cores >= 3:1 de contraste sobre branco)
+WORDCLOUD_PALETTE = [
+    "#2a78d6", "#199e70", "#c98500", "#008300",
+    "#4a3aa7", "#e34948", "#d55181", "#eb6834",
+]
+
+
+def _wordcloud_color_func(word, **kwargs):
+    # Cor determinística por palavra: estável entre atualizações da tela
+    return random.Random(word).choice(WORDCLOUD_PALETTE)
+
+
+@st.cache_data(ttl=300, max_entries=32, show_spinner=False)
+def create_wordcloud(responses):
+    """Gera a nuvem de palavras como PNG (bytes) a partir das respostas.
+
+    O posicionamento usa o algoritmo espiral da lib `wordcloud`, com teste de
+    colisão pixel a pixel — nenhuma palavra sobrepõe outra. O tamanho da fonte
+    é proporcional à frequência da resposta.
+    """
+    try:
+        phrases = [r.upper().strip() for r in responses if r and r.strip()]
+        if not phrases:
             return None
-            
-        # Criar visualização simples com matplotlib
-        fig, ax = plt.subplots(figsize=(12, 8), facecolor='white')
-        ax.set_facecolor('white')
-        
-        # Posições aleatórias para as palavras
-        np.random.seed(42)
-        positions = np.random.rand(len(top_phrases), 2)
-        
-        # Cores diferentes para cada palavra
-        colors = plt.cm.viridis(np.linspace(0, 1, len(top_phrases)))
-        
-        # Rotações aleatórias (0 = horizontal, 90 = vertical)
-        np.random.seed(42)
-        rotations = np.random.choice([0, 90], size=len(top_phrases))
-        
-        for i, (phrase, count) in enumerate(top_phrases.items()):
-            # Aumentar tamanho: menor fonte +4px, demais +8px
-            base_size = 20 + count * 5
-            if base_size <= 25:  # Fontes menores
-                size = min(base_size + 4, 54)
-            else:  # Fontes maiores
-                size = min(base_size + 8, 58)
-            
-            ax.text(positions[i][0], positions[i][1], phrase, 
-                   fontsize=size, color=colors[i], 
-                   ha='center', va='center', weight='bold',
-                   rotation=rotations[i])  # Adiciona rotação vertical
-        
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.axis('off')
-        ax.set_title('Nuvem de Palavras das Respostas', fontsize=20, pad=20)
-        
-        plt.tight_layout()
-        return fig
-        
+
+        top_phrases = dict(Counter(phrases).most_common(50))
+
+        wc = WordCloud(
+            width=1600,
+            height=900,
+            background_color="white",
+            max_words=50,
+            min_font_size=18,
+            max_font_size=280,
+            prefer_horizontal=0.9,
+            relative_scaling=0.55,
+            margin=18,
+            color_func=_wordcloud_color_func,
+            random_state=42,
+            collocations=False,
+        ).generate_from_frequencies(top_phrases)
+
+        buf = BytesIO()
+        wc.to_image().save(buf, format="PNG")
+        return buf.getvalue()
+
     except Exception as e:
         st.error(f"Erro ao criar nuvem de palavras: {e}")
         return None
+
+
+def render_moderator_auth(form_key, info_text):
+    """Formulário de autenticação do moderador (compartilhado pelos modos criar/moderar)."""
+    st.header("🔐 Autenticação de Moderador")
+    st.info(info_text)
+
+    with st.form(form_key):
+        password_input = st.text_input("Senha:", type="password", placeholder="Digite a senha")
+        auth_submit = st.form_submit_button("🔓 Entrar")
+
+        if auth_submit:
+            if password_input == get_moderator_password():
+                st.session_state.moderator_authenticated = True
+                st.success("✅ Autenticação bem-sucedida!")
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error("❌ Senha incorreta!")
 
 # Inicializar banco
 init_db()
@@ -362,7 +441,7 @@ if st.session_state.session_mode == 'participate':
         if session_data:
             st.markdown(f"""
             <div class="question-container">
-                💬 {session_data[2]}
+                💬 {html.escape(session_data[2])}
             </div>
             """, unsafe_allow_html=True)
             
@@ -392,9 +471,9 @@ if st.session_state.session_mode == 'participate':
                 
                 # Mostrar nuvem de palavras para participantes
                 st.subheader("☁️ Nuvem de Palavras das Respostas")
-                wordcloud_fig = create_wordcloud(current_responses)
-                if wordcloud_fig:
-                    st.pyplot(wordcloud_fig)
+                wordcloud_png = create_wordcloud(current_responses)
+                if wordcloud_png:
+                    st.image(wordcloud_png, use_container_width=True)
                 else:
                     st.info("Aguardando mais respostas para gerar a nuvem de palavras...")
                     
@@ -419,21 +498,7 @@ if st.session_state.session_mode == 'participate':
 elif st.session_state.session_mode == 'create':
     # Verificar autenticação
     if not st.session_state.moderator_authenticated:
-        st.header("🔐 Autenticação de Moderador")
-        st.info("Digite a senha de moderador para criar uma sessão.")
-        
-        with st.form("auth_form"):
-            password_input = st.text_input("Senha:", type="password", placeholder="Digite a senha")
-            auth_submit = st.form_submit_button("🔓 Entrar")
-            
-            if auth_submit:
-                if password_input == get_moderator_password():
-                    st.session_state.moderator_authenticated = True
-                    st.success("✅ Autenticação bem-sucedida!")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error("❌ Senha incorreta!")
+        render_moderator_auth("auth_form", "Digite a senha de moderador para criar uma sessão.")
     else:
         st.header("🎯 Criar Nova Sessão Interativa")
         
@@ -493,25 +558,21 @@ elif st.session_state.session_mode == 'create':
 elif st.session_state.session_mode == 'moderate':
     # Verificar autenticação
     if not st.session_state.moderator_authenticated:
-        st.header("🔐 Autenticação de Moderador")
-        st.info("Digite a senha de moderador para acessar o painel de moderação.")
-        
-        with st.form("auth_moderate_form"):
-            password_input = st.text_input("Senha:", type="password", placeholder="Digite a senha")
-            auth_submit = st.form_submit_button("🔓 Entrar")
-            
-            if auth_submit:
-                if password_input == get_moderator_password():
-                    st.session_state.moderator_authenticated = True
-                    st.success("✅ Autenticação bem-sucedida!")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error("❌ Senha incorreta!")
+        render_moderator_auth("auth_moderate_form", "Digite a senha de moderador para acessar o painel de moderação.")
     else:
         if st.session_state.current_session:
-            session_data = get_session_by_pin(st.session_state.current_pin)
-            if session_data:
+
+            # Auto-refresh sem bloquear thread: o fragment reexecuta apenas o
+            # painel a cada 5s, em vez de time.sleep(5) + rerun da página toda
+            @st.fragment(run_every=5 if st.session_state.auto_refresh else None)
+            def render_moderator_panel():
+                session_data = get_session_by_pin(st.session_state.current_pin)
+                if not session_data:
+                    st.error("❌ Sessão não encontrada.")
+                    st.session_state.current_session = None
+                    st.session_state.current_pin = None
+                    return
+
                 responses = get_responses(st.session_state.current_session)
                 
                 # Layout principal
@@ -538,7 +599,7 @@ elif st.session_state.session_mode == 'moderate':
                     
                     # Controles
                     if st.button("🔄 Atualizar Agora"):
-                        st.rerun()
+                        st.rerun(scope="fragment")
                     
                     if st.button("🛑 Encerrar Sessão"):
                         st.session_state.current_session = None
@@ -549,7 +610,7 @@ elif st.session_state.session_mode == 'moderate':
                 with col1:
                     st.markdown(f"""
                     <div class="question-container">
-                        📋 {session_data[2]}
+                        📋 {html.escape(session_data[2])}
                     </div>
                     """, unsafe_allow_html=True)
                     
@@ -595,9 +656,9 @@ elif st.session_state.session_mode == 'moderate':
                         
                         with tab2:
                             # Nuvem de palavras
-                            wordcloud_fig = create_wordcloud(responses)
-                            if wordcloud_fig:
-                                st.pyplot(wordcloud_fig)
+                            wordcloud_png = create_wordcloud(responses)
+                            if wordcloud_png:
+                                st.image(wordcloud_png, use_container_width=True)
                             else:
                                 st.info("💭 Aguardando mais respostas para gerar a nuvem de palavras...")
                         
@@ -610,14 +671,7 @@ elif st.session_state.session_mode == 'moderate':
                         st.info("📭 Aguardando respostas dos participantes...")
                         st.markdown("### 📢 Compartilhe o PIN ou QR Code com seus participantes!")
                 
-                # Auto-refresh para moderador
-                if st.session_state.auto_refresh:
-                    time.sleep(5)
-                    st.rerun()
-            else:
-                st.error("❌ Sessão não encontrada.")
-                st.session_state.current_session = None
-                st.session_state.current_pin = None
+            render_moderator_panel()
         else:
             st.info("ℹ️ Nenhuma sessão ativa. Crie uma nova sessão primeiro.")
             if st.button("➕ Criar Nova Sessão"):
@@ -632,36 +686,4 @@ st.markdown("""
     Criado durante a Live da ANETI, por <strong>Ary Ribeiro</strong>: <a href="mailto:aryribeiro@gmail.com">aryribeiro@gmail.com</a><br>
     <small>Versão 1.0 | Streamlit + Python</small>
 </div>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<style>
-    .main {
-        background-color: #ffffff;
-        color: #333333;
-    }
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 0rem;
-    }
-    /* Esconde completamente todos os elementos da barra padrão do Streamlit */
-    header {display: none !important;}
-    footer {display: none !important;}
-    #MainMenu {display: none !important;}
-    /* Remove qualquer espaço em branco adicional */
-    div[data-testid="stAppViewBlockContainer"] {
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-    }
-    div[data-testid="stVerticalBlock"] {
-        gap: 0 !important;
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-    }
-    /* Remove quaisquer margens extras */
-    .element-container {
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
-    }
-</style>
 """, unsafe_allow_html=True)
