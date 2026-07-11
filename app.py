@@ -22,40 +22,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# CSS customizado
-def inject_custom_css():
-
-    st.markdown("""
-<style>
-    .main {
-        background-color: #ffffff;
-        color: #333333;
-    }
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 0rem;
-    }
-    header {display: none !important;}
-    footer {display: none !important;}
-    #MainMenu {display: none !important;}
-    div[data-testid="stAppViewBlockContainer"] {
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-    }
-    div[data-testid="stVerticalBlock"] {
-        gap: 0 !important;
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-    }
-    .element-container {
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-inject_custom_css()
-
 # Configuração do banco de dados com thread lock
 db_lock = threading.Lock()
 
@@ -606,4 +572,33 @@ st.markdown("""
     Criado durante a Live da ANETI, por <strong>Ary Ribeiro</strong>: <a href="mailto:aryribeiro@gmail.com">aryribeiro@gmail.com</a><br>
     <small>Versão 1.0 | Streamlit + Python</small>
 </div>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+    .main {
+        background-color: #ffffff;
+        color: #333333;
+    }
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 0rem;
+    }
+    header {display: none !important;}
+    footer {display: none !important;}
+    #MainMenu {display: none !important;}
+    div[data-testid="stAppViewBlockContainer"] {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    div[data-testid="stVerticalBlock"] {
+        gap: 0 !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    .element-container {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+</style>
 """, unsafe_allow_html=True)
