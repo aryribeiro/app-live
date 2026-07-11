@@ -19,7 +19,7 @@ st.set_page_config(
     page_title="App Live",
     page_icon="📡",
     layout="centered",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
 
 # CSS customizado
